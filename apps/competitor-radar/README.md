@@ -11,7 +11,12 @@ SaaS founders, e-commerce brands, and market researchers spend hours manually tr
 Traditional scrapers frequently fail due to anti-bot mechanisms, lack session traceability, and require heavy local infrastructure to parse untrusted web DOMs safely.
 
 ---
+## ScreenShot
+<img width="1485" height="718" alt="Screenshot 2026-09-02 at 7 46 49 PM" src="https://github.com/user-attachments/assets/8103b750-a13b-489d-81bb-4aeafeddc597" />
 
+<img width="1261" height="745" alt="Screenshot 2026-09-02 at 7 50 43 PM" src="https://github.com/user-attachments/assets/23c9ae73-359e-4618-8272-ae1075551718" />
+
+---
 ## How Solari Powers This Build
 
 This project orchestrates two core Solari primitives end-to-end:
