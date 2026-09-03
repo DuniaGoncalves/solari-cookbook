@@ -16,6 +16,9 @@ Traditional scrapers frequently fail due to anti-bot mechanisms, lack session tr
 
 <img width="1261" height="745" alt="Screenshot 2026-09-02 at 7 50 43 PM" src="https://github.com/user-attachments/assets/23c9ae73-359e-4618-8272-ae1075551718" />
 
+## Video
+
+https://github.com/user-attachments/assets/d7c17d91-e46e-4aeb-8242-eaca58f492f9
 ---
 ## How Solari Powers This Build
 
