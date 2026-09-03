@@ -1,4 +1,12 @@
 # Solari Cookbook
+# Featured Project: Autonomous Competitor & Pricing Intelligence Radar
+
+> A real-world production use case built with **Solari Cloud Browsers** and **Sandboxes** for the Pinetree Research SWE Internship Challenge.
+
+**Application Directory:** [`/apps/competitor-radar`](./apps/competitor-radar)  
+**Stack:** Next.js 15, TypeScript, Tailwind CSS, `@solarisdk/browser`, `@solarisdk/sandbox`
+
+---
 
 Short, runnable examples for [Solari](https://getsolari.com) — cloud browsers,
 sandboxes, and desktops behind one API key.
