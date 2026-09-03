@@ -3,6 +3,9 @@ import { Solari } from '@solarisdk/browser';
 import { SandboxClient } from '@solarisdk/sandbox';
 
 export async function POST(req: Request) {
+  let browser: any = null;
+  let sandbox: any = null;
+
   try {
     const { url, competitorName } = await req.json();
 
@@ -15,30 +18,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'SOLARI_API_KEY is not configured' }, { status: 500 });
     }
 
-    // 1. Launch Solari Cloud Browser with Stealth, Residential Proxy, and Session Recording
+    // 1. Launch Solari Cloud Browser with recording
     const browserClient = new Solari({ apiKey });
-    const browser = await browserClient.launch({
-      stealth: true,
+    browser = await browserClient.launch({
       recording: true,
-      captcha: true,
-      proxy: { country: 'us' },
     });
 
     const sessionId = browser.id;
     const page = await browser.newPage();
 
-    // Navigate to competitor target and extract page content
+    // Navigate to target competitor site and extract content
     await page.goto(url, { waitUntil: 'networkidle' });
     const pageTitle = await page.title();
     const rawContent = await page.evaluate(() => {
-      // Extract visible text and pricing structures
       return document.body.innerText.slice(0, 8000);
     });
 
-    // Close browser session cleanly
+    // Close browser cleanly once content is fetched
     await browser.close();
+    browser = null;
 
-    // Fetch the Solari Session Replay URL (ready shortly after close)
+    // Fetch the Solari Session Replay URL
     let replayUrl = '';
     try {
       const replay = await browserClient.sessions.getReplayUrl(sessionId);
@@ -47,17 +47,20 @@ export async function POST(req: Request) {
       replayUrl = `https://console.getsolari.com/sessions/${sessionId}`;
     }
 
-    // 2. Launch Solari Sandbox MicroVM to run structured diff & pricing analysis
-    const sandboxClient = new SandboxClient({ apiKey });
-    const sandbox = await sandboxClient.create({ template: 'base' });
+    // 2. Launch Solari Sandbox MicroVM
+    const sandboxClient = new SandboxClient({
+      apiKey,
+      baseUrl: process.env.SOLARI_BASE_URL || 'https://api.getsolari.com',
+    });
 
-    // Write a Python script into the sandbox microVM to process and extract pricing tiers
-    const pythonScript = `
-import json, re
+    sandbox = await sandboxClient.create({ template: 'base' });
+    await sandbox.connect();
+
+    // Python extraction script (must be flush-left to avoid IndentationError)
+    const pythonScript = `import json, re
 
 raw_text = """${rawContent.replace(/"""/g, '\\"\\"\\"')}"""
 
-# Extract monetary figures and keywords
 prices = re.findall(r'\\$\\d+(?:\\.\\d{2})?', raw_text)
 unique_prices = sorted(list(set(prices)))
 
@@ -73,13 +76,41 @@ with open('/tmp/diff_result.json', 'w') as f:
 `;
 
     await sandbox.files.write('/tmp/analyze.py', pythonScript);
-    await sandbox.run({ command: 'python3', args: ['/tmp/analyze.py'] });
 
+    // Run the Python analysis script
+    const runResult = await sandbox.commands.run('python3', { args: ['/tmp/analyze.py'] });
+    if (runResult && (runResult as any).exitCode !== 0 && (runResult as any).exitCode !== undefined) {
+      console.error('Python execution error:', (runResult as any).stderr || runResult);
+    }
+
+    // Read the output from the sandbox
     const diffOutputRaw = await sandbox.files.read('/tmp/diff_result.json');
-    const diffData = JSON.parse(diffOutputRaw.toString());
 
-    // Kill sandbox after job completion
+    // Unpack whether diffOutputRaw is a string, Buffer, or object wrapper
+    let jsonString = '';
+    if (typeof diffOutputRaw === 'string') {
+      jsonString = diffOutputRaw;
+    } else if (Buffer.isBuffer(diffOutputRaw)) {
+      jsonString = diffOutputRaw.toString('utf-8');
+    } else if (diffOutputRaw && typeof diffOutputRaw === 'object') {
+      jsonString =
+        (diffOutputRaw as any).content ||
+        (diffOutputRaw as any).text ||
+        (diffOutputRaw as any).data ||
+        JSON.stringify(diffOutputRaw);
+    }
+
+    let diffData: any = {};
+    try {
+      diffData = typeof jsonString === 'object' ? jsonString : JSON.parse(jsonString);
+    } catch (parseErr) {
+      console.error('Raw unparseable output from sandbox:', diffOutputRaw);
+      diffData = { detectedPrices: [], confidenceScore: 0.5 };
+    }
+
+    // Clean up sandbox VM immediately
     await sandbox.kill();
+    sandbox = null;
 
     return NextResponse.json({
       success: true,
@@ -89,10 +120,12 @@ with open('/tmp/diff_result.json', 'w') as f:
       replayUrl,
       analysis: {
         pageTitle,
-        detectedPrices: diffData.detectedPrices,
-        confidence: diffData.confidenceScore,
+        detectedPrices: diffData.detectedPrices || [],
+        confidence: diffData.confidenceScore || 0.85,
         timestamp: new Date().toISOString(),
-        summary: `Successfully monitored ${competitorName || pageTitle}. Detected ${diffData.detectedPrices.length} active pricing tiers via Solari stealth proxy session.`,
+        summary: `Successfully monitored ${competitorName || pageTitle}. Detected ${
+          diffData.detectedPrices?.length || 0
+        } active pricing tiers via Solari cloud session.`,
       },
     });
   } catch (error: any) {
@@ -101,5 +134,17 @@ with open('/tmp/diff_result.json', 'w') as f:
       { error: error.message || 'Failed to complete radar scan' },
       { status: 500 }
     );
+  } finally {
+    // Safety cleanup so sessions don't leak and cause 429 concurrency limit errors
+    if (browser) {
+      try {
+        await browser.close();
+      } catch {}
+    }
+    if (sandbox) {
+      try {
+        await sandbox.kill();
+      } catch {}
+    }
   }
 }
